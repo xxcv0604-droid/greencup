@@ -428,3 +428,30 @@ form .btn { width: 100%; margin-top: 4px; }
   });
 })();
 </script>
+
+<script type="module">
+  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
+  import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+
+  const app = initializeApp({
+    apiKey: "AIzaSyDY9VIRHdcElhfZtPuKLnnTtFyeW2sHknk",
+    authDomain: "greencup-landing.firebaseapp.com",
+    projectId: "greencup-landing",
+    storageBucket: "greencup-landing.firebasestorage.app",
+    messagingSenderId: "62247359568",
+    appId: "1:62247359568:web:b7b8fded56d55004a56d55"
+  });
+  const db = getFirestore(app);
+
+  document.getElementById("pre-form").addEventListener("submit", async () => {
+    const name = document.getElementById("f-name").value.trim();
+    const email = document.getElementById("f-email").value.trim();
+    // 이름이 비었거나 이메일 형식이 틀리면 저장하지 않음
+    if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return;
+    try {
+      await addDoc(collection(db, "consults"), { name, email, createdAt: serverTimestamp() });
+    } catch (err) {
+      console.error("Firestore 저장 실패", err);
+    }
+  });
+</script>
