@@ -350,6 +350,10 @@ form .btn { width: 100%; margin-top: 4px; }
           </div>
 
           <form id="pre-form" novalidate>
+            <div id="kakao-note" hidden style="margin:0 0 14px;padding:12px 14px;border-radius:10px;background:#FFF8E1;color:#5D4300;font-size:14px;line-height:1.5">
+              카카오톡 안에서 열면 신청이 저장되지 않을 수 있어요. 아래 버튼으로 기본 브라우저에서 열어 주세요.
+              <a id="kakao-open" href="#" style="display:block;margin-top:8px;font-weight:700;color:#5D4300;text-decoration:underline">기본 브라우저로 열기</a>
+            </div>
             <div class="field">
               <label for="f-name">이름</label>
               <input id="f-name" name="name" type="text" autocomplete="name" placeholder="홍길동" required>
@@ -360,6 +364,7 @@ form .btn { width: 100%; margin-top: 4px; }
               <input id="f-email" name="email" type="email" autocomplete="email" placeholder="you@example.com" required>
               <span class="err" id="e-email" aria-live="polite"></span>
             </div>
+            <span class="err" id="e-form" role="alert" aria-live="assertive"></span>
             <button class="btn" type="submit">사전예약 신청하기</button>
             <p class="fine">출시일은 2026년 11월 15일이에요. 입력하신 정보는 출시 안내에만 사용해요.</p>
           </form>
@@ -410,47 +415,82 @@ form .btn { width: 100%; margin-top: 4px; }
     if (msg) input.setAttribute('aria-invalid', 'true'); else input.removeAttribute('aria-invalid');
   }
 
+  var eForm = document.getElementById('e-form');
+  var btn = form.querySelector('button[type="submit"]');
+  var btnLabel = btn.textContent;
+  var isKakao = /KAKAOTALK/i.test(navigator.userAgent);
+  var openUrl = 'kakaotalk://web/openExternal?url=' + encodeURIComponent(location.href);
+
+  if (isKakao) {
+    document.getElementById('kakao-note').hidden = false;
+    document.getElementById('kakao-open').setAttribute('href', openUrl);
+  }
+
+  // Firebase는 제출 시점에 불러와요. 불러오기/저장이 실패하면 성공 화면을 보여주지 않아요.
+  var fbPromise = null;
+  function loadFirebase() {
+    if (!fbPromise) {
+      fbPromise = Promise.all([
+        import('https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js'),
+        import('https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js')
+      ]).then(function (m) {
+        var app = m[0].initializeApp({
+          apiKey: "AIzaSyDY9VIRHdcElhfZtPuKLnnTtFyeW2sHknk",
+          authDomain: "greencup-landing.firebaseapp.com",
+          projectId: "greencup-landing",
+          storageBucket: "greencup-landing.firebasestorage.app",
+          messagingSenderId: "62247359568",
+          appId: "1:62247359568:web:b7b8fded56d55004a56d55"
+        });
+        // 인앱 브라우저처럼 연결이 까다로운 환경에서도 동작하도록 롱폴링 자동 전환
+        var db = m[1].initializeFirestore(app, { experimentalAutoDetectLongPolling: true });
+        return { db: db, fs: m[1] };
+      }).catch(function (e) { fbPromise = null; throw e; });
+    }
+    return fbPromise;
+  }
+
+  function withTimeout(promise, ms) {
+    return Promise.race([
+      promise,
+      new Promise(function (_, reject) { setTimeout(function () { reject(new Error('timeout')); }, ms); })
+    ]);
+  }
+
+  var saving = false;
   form.addEventListener('submit', function (ev) {
     ev.preventDefault();
+    if (saving) return;
     var n = name.value.trim();
     var m = email.value.trim();
     var ok = true;
+    eForm.textContent = '';
     setErr(name, eName, n ? '' : '이름을 입력해 주세요.');
     if (!n) ok = false;
     var valid = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(m);
     setErr(email, eEmail, valid ? '' : '이메일 주소를 확인해 주세요. 예: you@example.com');
     if (!valid) ok = false;
     if (!ok) { (n ? email : name).focus(); return; }
-    title.textContent = n + '님, 신청이 접수됐어요 🌱';
-    form.hidden = true;
-    done.hidden = false;
+
+    saving = true;
+    btn.disabled = true;
+    btn.textContent = '신청 중이에요...';
+
+    withTimeout(loadFirebase().then(function (fb) {
+      return fb.fs.addDoc(fb.fs.collection(fb.db, 'consults'), { name: n, email: m, createdAt: fb.fs.serverTimestamp() });
+    }), 15000).then(function () {
+      title.textContent = n + '님, 신청이 접수됐어요 🌱';
+      form.hidden = true;
+      done.hidden = false;
+    }).catch(function (err) {
+      console.error('Firestore 저장 실패', err);
+      eForm.textContent = isKakao
+        ? '신청이 저장되지 않았어요. 위의 "기본 브라우저로 열기"로 열어서 다시 신청해 주세요.'
+        : '신청이 저장되지 않았어요. 네트워크를 확인하고 잠시 후 다시 시도해 주세요.';
+      btn.disabled = false;
+      btn.textContent = btnLabel;
+      saving = false;
+    });
   });
 })();
-</script>
-
-<script type="module">
-  import { initializeApp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-app.js";
-  import { getFirestore, collection, addDoc, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
-
-  const app = initializeApp({
-    apiKey: "AIzaSyDY9VIRHdcElhfZtPuKLnnTtFyeW2sHknk",
-    authDomain: "greencup-landing.firebaseapp.com",
-    projectId: "greencup-landing",
-    storageBucket: "greencup-landing.firebasestorage.app",
-    messagingSenderId: "62247359568",
-    appId: "1:62247359568:web:b7b8fded56d55004a56d55"
-  });
-  const db = getFirestore(app);
-
-  document.getElementById("pre-form").addEventListener("submit", async () => {
-    const name = document.getElementById("f-name").value.trim();
-    const email = document.getElementById("f-email").value.trim();
-    // 이름이 비었거나 이메일 형식이 틀리면 저장하지 않음
-    if (!name || !/^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(email)) return;
-    try {
-      await addDoc(collection(db, "consults"), { name, email, createdAt: serverTimestamp() });
-    } catch (err) {
-      console.error("Firestore 저장 실패", err);
-    }
-  });
 </script>
